@@ -16,7 +16,7 @@ Victoria 3's construction buttons live in vanilla `.gui` files. Instead of bundl
 
 The initial reference was a 1.14.5-openbeta extract. Version 0.1.1 also incorporates the supplied five-file `vic3_gui.zip`, whose exact game version is unknown. That archive has queue handlers in a shared button definition and a separate cancellation-only panel. See [the GUI audit](docs/gui-audit-2026-10-04.md) for the comparison and verification evidence.
 
-The builder requires a `game/gui` tree with at least one building queue handler; no particular GUI filename is mandatory. It processes cancellation-only files, discovers additional call sites, and rejects unsupported target handlers or conflicting click/modifier properties in the same widget before replacing an existing mod. A successful build verifies the supported GUI transformation, not the game version, input dispatch, or completeness of a partial GUI extract. Always build an installed mod from the full game installation. Do not use outside 1.14.x merely because GUI structure matches.
+The builder requires a `game/gui` tree with at least one building queue handler. When those files use `expand_building_button`, its shared definition must also be present in the game or supplied overlays. It processes cancellation-only files, discovers additional call sites, and rejects unsupported target handlers or conflicting click/modifier properties in the same widget before replacing an existing mod. A successful build verifies the supported GUI transformation, not the game version, input dispatch, or completeness of a partial GUI extract. Always build an installed mod from the full game installation. Do not use outside 1.14.x merely because GUI structure matches.
 
 ## Install on Windows
 
@@ -70,6 +70,20 @@ The original six-file layout is still supported when those handlers are present.
 Version 0.1.2 was additionally generated against the user's full installed Victoria 3 1.14.5 (Steam `1.14-openbeta`, build 25629520). That installation has no `building_details_panel.gui`; it has 15 target sites across seven files. See [the installer fix and installed-game audit](docs/installer-fix-2026-10-04.md) for the exact override list.
 
 UI mods that replace any discovered file can conflict by load order. Regenerate after Victoria 3 updates within 1.14.x. The output directory must not overlap the game installation or builder package; the builder replaces that directory after staging and validation. Existing unrelated `.previous` directories are preserved, and a failed publish restores the existing mod.
+
+### GORA UI+ and matching recovery sources (0.1.3)
+
+The builder can read additional GUI directories in load order. Later directories replace earlier files with the same relative path; only files with supported building construction/cancellation handlers are emitted. This is a construction compatibility patch, not a complete copy of the UI mod. Keep the original UI mod enabled and load the generated patch after it.
+
+For the inspected installation, `building_details_panel.gui` is missing although multiple vanilla panels use its shared types. The user's `vic3_gui.zip` supplies that definition; its other four files exactly match the installed game. Read that recovery directory first, then GORA's GUI directory:
+
+```powershell
+& .\tools\install.ps1 -GameDir "D:\SteamLibrary\steamapps\common\Victoria 3" -GuiOverlay @("X:\extracted\vic3_gui", "D:\SteamLibrary\steamapps\workshop\content\529340\3724865565\gui")
+```
+
+Run this in the current PowerShell session with script execution allowed. The Python CLI accepts repeated `--gui-overlay "directory"` arguments. Sources are read only, and output must not overlap any source directory. Recovery files must match your installed game; arbitrary old GUI definitions are unsafe.
+
+The supplied 0.1.3 GORA-compatible mod-only ZIP contains ten GUI overrides covering 23 action sites, including GORA's overview and expanded building grid. Disable older standard/probe builds, enable GORA UI+ and **Priority Batch Construction — GORA UI+ Compatibility**, and load this patch after GORA. Normal Shift/Ctrl handlers contain 5/10 actions; the separate GORA probe deliberately uses 2/3, and is for diagnostics only. See [the compatibility investigation](docs/gora-compatibility-2026-10-04.md). Runtime behavior remains to be verified in Victoria 3.
 
 ## Developer verification
 

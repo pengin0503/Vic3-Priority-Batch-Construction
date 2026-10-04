@@ -128,15 +128,33 @@ def _validate_static_payload() -> None:
         raise ValueError("Metadata is not targeted at Victoria 3 1.14")
 
 
-def _discover_sources(game_dir: Path) -> dict[str, str]:
+def _validate_shared_expansion_type(texts: list[str]) -> None:
+    used = any(key == "expand_building_button" and value == "{"
+               for text in texts for _, _, key, value, _ in _gui_assignments(text))
+    if not used:
+        return
+    for text in texts:
+        tokens = [token.group() for token in _GUI_TOKEN.finditer(text)
+                  if not token.group().startswith("#")]
+        if any(first == "type" and second == "expand_building_button"
+               for first, second in zip(tokens, tokens[1:])):
+            return
+    raise ValueError("Missing shared GUI type expand_building_button; provide its matching GUI definition before building")
+
+
+def _discover_sources(game_dir: Path, gui_overlay_dirs: tuple[Path, ...] = ()) -> dict[str, str]:
     gui_dir = game_dir / "game/gui"
     if not gui_dir.is_dir():
         raise FileNotFoundError(f"Missing Victoria 3 GUI directory: {gui_dir}")
-    sources = {}
-    for source in sorted(gui_dir.rglob("*.gui")):
-        text = source.read_text(encoding="utf-8-sig")
-        if _target_handlers(text):
-            sources[source.relative_to(game_dir).as_posix()] = text
+    effective_gui = {}
+    for directory in (gui_dir, *gui_overlay_dirs):
+        if not directory.is_dir():
+            raise FileNotFoundError(f"Missing GUI overlay directory: {directory}")
+        for source in sorted(directory.rglob("*.gui")):
+            rel = "game/gui/" + source.relative_to(directory).as_posix()
+            effective_gui[rel] = source.read_text(encoding="utf-8-sig")
+    _validate_shared_expansion_type(list(effective_gui.values()))
+    sources = {rel: text for rel, text in sorted(effective_gui.items()) if _target_handlers(text)}
     if not any(
         action == "QueueConstruction"
         for text in sources.values()
@@ -146,8 +164,8 @@ def _discover_sources(game_dir: Path) -> dict[str, str]:
     return sources
 
 
-def _validate_output(game_dir: Path, output_dir: Path) -> None:
-    for source in (game_dir, ROOT.resolve()):
+def _validate_output(game_dir: Path, output_dir: Path, gui_overlay_dirs: tuple[Path, ...] = ()) -> None:
+    for source in (game_dir, ROOT.resolve(), *gui_overlay_dirs):
         if output_dir == source or output_dir in source.parents or source in output_dir.parents:
             raise ValueError(f"Output must not overlap game or builder sources: {source}")
 
@@ -182,13 +200,15 @@ def _validate_generated(stage: Path, report: dict, sources: dict[str, str]) -> N
     _validate_static_payload()
 
 
-def build_mod(game_dir: Path | str, output_dir: Path | str, probe: bool = False) -> dict:
+def build_mod(game_dir: Path | str, output_dir: Path | str, probe: bool = False,
+              gui_overlay_dirs: list[Path | str] | tuple[Path | str, ...] = ()) -> dict:
     """Build a mod from local vanilla files, replacing destination only after validation."""
     game_dir = Path(game_dir).resolve()
     output_dir = Path(output_dir).resolve()
-    _validate_output(game_dir, output_dir)
+    gui_overlay_dirs = tuple(Path(path).resolve() for path in gui_overlay_dirs)
+    _validate_output(game_dir, output_dir, gui_overlay_dirs)
     _validate_static_payload()
-    sources = _discover_sources(game_dir)
+    sources = _discover_sources(game_dir, gui_overlay_dirs)
     patched_sources = {}
     for rel, original in sources.items():
         try:
@@ -246,6 +266,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build Priority Batch Construction for Victoria 3 1.14.x")
     parser.add_argument("--game-dir", required=True, type=Path, help="Victoria 3 installation directory")
     parser.add_argument("--output", type=Path, default=None, help="Generated mod directory")
+    parser.add_argument("--gui-overlay", type=Path, action="append", default=[],
+                        help="Read a matching recovery/UI-mod GUI directory after vanilla; repeat in load order")
     parser.add_argument(
         "--probe",
         action="store_true",
@@ -254,7 +276,7 @@ def main() -> int:
     args = parser.parse_args()
     output = args.output or _default_output(args.probe)
     print(COMPATIBILITY_WARNING)
-    report = build_mod(args.game_dir, output, probe=args.probe)
+    report = build_mod(args.game_dir, output, probe=args.probe, gui_overlay_dirs=args.gui_overlay)
     label = "Modifier Probe" if args.probe else "Priority Batch Construction"
     print(f"Built {label} at: {output}")
     for rel in report["patched_files"]:

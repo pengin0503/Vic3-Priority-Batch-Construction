@@ -3,6 +3,7 @@ param(
     [string]$GameDir = "",
     [string]$OutputDir = "",
     [string]$PythonExe = "",
+    [string[]]$GuiOverlay = @(),
     [switch]$Probe
 )
 
@@ -93,6 +94,10 @@ $argsList += "--game-dir"
 $argsList += $GameDir
 $argsList += "--output"
 $argsList += $OutputDir
+foreach ($overlay in $GuiOverlay) {
+    $argsList += "--gui-overlay"
+    $argsList += $overlay
+}
 if ($Probe) {
     $argsList += "--probe"
 }

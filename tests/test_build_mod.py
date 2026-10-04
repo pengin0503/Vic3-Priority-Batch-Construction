@@ -297,6 +297,69 @@ onclick = "[Execute( Building.QueueConstruction )]"
                 m.build_mod(game, out)
             self.assertFalse(out.exists())
 
+    def test_build_rejects_missing_shared_expansion_type(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game, out = Path(td) / "game", Path(td) / "out"
+            gui = game / "game/gui"
+            gui.mkdir(parents=True)
+            (gui / "states_panel.gui").write_text(
+                'onclick = "[Execute( Building.QueueConstruction )]"\n'
+                'expand_building_button = {}\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Missing shared GUI type.*expand_building_button"):
+                m.build_mod(game, out)
+            self.assertFalse(out.exists())
+
+    def test_build_patches_missing_definition_and_ui_mod_from_read_only_overlays(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game, out = Path(td) / "game", Path(td) / "out"
+            gui = game / "game/gui"
+            gui.mkdir(parents=True)
+            (gui / "states_panel.gui").write_text(
+                'button = {\n  onclick = "[Execute( Building.QueueConstruction )]"\n}\n'
+                'expand_building_button = {}\n', encoding="utf-8")
+            recovery, ui_mod = Path(td) / "recovery", Path(td) / "ui_mod"
+            recovery.mkdir()
+            ui_mod.mkdir()
+            definition = recovery / "building_details_panel.gui"
+            definition.write_text('type expand_building_button = widget {\n'
+                                  '  onclick = "[Execute( Building.QueueConstruction )]"\n}\n', encoding="utf-8")
+            custom = ui_mod / "custom_overview.gui"
+            custom.write_text('onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            original = {p: p.read_bytes() for p in (definition, custom, gui / "states_panel.gui")}
+            report = m.build_mod(game, out, probe=True, gui_overlay_dirs=[recovery, ui_mod])
+            self.assertEqual(report["replacement_counts"], {
+                "game/gui/building_details_panel.gui": 1,
+                "game/gui/custom_overview.gui": 1,
+                "game/gui/states_panel.gui": 1,
+            })
+            for name in ("building_details_panel.gui", "custom_overview.gui", "states_panel.gui"):
+                text = (out / "gui" / name).read_text(encoding="utf-8-sig")
+                self.assertEqual(text.count('onshift = "[Execute( Building.QueueConstruction )]"'), 2)
+            self.assertTrue(all(p.read_bytes() == contents for p, contents in original.items()))
+            self.assertFalse((gui / "building_details_panel.gui").exists())
+
+    def test_gui_overlay_precedence_uses_last_source_for_same_file(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game, out, overlay = Path(td) / "game", Path(td) / "out", Path(td) / "ui"
+            gui = game / "game/gui"
+            gui.mkdir(parents=True)
+            overlay.mkdir()
+            (gui / "states_panel.gui").write_text('onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            (overlay / "states_panel.gui").write_text('# UI CUSTOM LAYOUT\n'
+                'onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            m.build_mod(game, out, gui_overlay_dirs=[overlay])
+            self.assertTrue((out / "gui/states_panel.gui").read_text(encoding="utf-8-sig").startswith('# UI CUSTOM LAYOUT\n'))
+
+    def test_build_rejects_output_overlapping_gui_overlay(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game, overlay = Path(td) / "game", Path(td) / "overlay"
+            with self.assertRaisesRegex(ValueError, "overlap"):
+                m.build_mod(game, overlay, gui_overlay_dirs=[overlay])
+
     @unittest.skipUnless(os.name == "nt" and shutil.which("powershell.exe"), "Windows PowerShell integration")
     def test_installer_falls_back_when_python_launcher_is_broken(self):
         with tempfile.TemporaryDirectory() as td:

@@ -21,6 +21,8 @@ The probe deliberately maps handlers to distinct counts:
 
 First verify the four single-modifier signatures: normal click = 1, Shift+click = 2, Ctrl+click = 3, Alt+click = 4. If those do not match, stop and capture `error.log` / `gui.log` before testing combined keys.
 
+When using GORA UI+, use the GORA-compatible probe generated with its GUI overlay, and load it after GORA. The original mod must remain enabled to supply its other UI files. Disable every normal Priority Batch build. All-one results cannot identify combined-key routing: the tested button may be unpatched or overridden. See [the GORA investigation](gora-compatibility-2026-10-04.md).
+
 ## Decode Shift+Alt
 
 Click once with **Shift+Alt** held and count only the newly-added construction entries:
