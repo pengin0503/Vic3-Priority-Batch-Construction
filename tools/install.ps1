@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$GameDir = "",
-    [string]$OutputDir = ""
+    [string]$OutputDir = "",
+    [switch]$Probe
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,7 +49,8 @@ if ([string]::IsNullOrWhiteSpace($GameDir)) {
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $documents = [Environment]::GetFolderPath("MyDocuments")
-    $OutputDir = Join-Path $documents "Paradox Interactive\Victoria 3\mod\Vic3PriorityBatch"
+    $folderName = if ($Probe) { "Vic3PriorityBatchProbe" } else { "Vic3PriorityBatch" }
+    $OutputDir = Join-Path $documents "Paradox Interactive\Victoria 3\mod\$folderName"
 }
 
 $python = $null
@@ -69,8 +71,12 @@ $argsList += "--game-dir"
 $argsList += $GameDir
 $argsList += "--output"
 $argsList += $OutputDir
+if ($Probe) {
+    $argsList += "--probe"
+}
 
-Write-Host "Building Priority Batch Construction for Victoria 3..."
+$label = if ($Probe) { "Priority Batch Construction modifier probe" } else { "Priority Batch Construction" }
+Write-Host "Building $label for Victoria 3..."
 Write-Host "Game: $GameDir"
 Write-Host "Mod:  $OutputDir"
 & $python @argsList
@@ -80,4 +86,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "Generated mod: $OutputDir"
-Write-Host "Open the Paradox Launcher, add/enable 'Priority Batch Construction', then follow docs\runtime-verification.md from this package."
+if ($Probe) {
+    Write-Host "Enable only 'Priority Batch Construction — Modifier Probe' and follow docs\modifier-dispatch-probe.md."
+} else {
+    Write-Host "Open the Paradox Launcher, add/enable 'Priority Batch Construction', then follow docs\runtime-verification.md from this package."
+}

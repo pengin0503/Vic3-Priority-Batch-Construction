@@ -46,3 +46,11 @@
 - [x] Run full test suite.
 - [x] Run builder against a synthetic 1.14.5 fixture and inspect generated tree.
 - [x] Zip source package and verify archive entries.
+
+### Task 4: Modifier-dispatch probe
+**Files:** Modify `tools/build_mod.py`, `tools/install.ps1`, `README.md`; create `docs/modifier-dispatch-probe.md`; extend `tests/test_build_mod.py`.
+**Interfaces:** `patch_gui_text(text, probe=False)` and `build_mod(game_dir, output_dir, probe=False)` preserve standard mode; probe mode uses queue handler signatures default=1, Shift=2, Ctrl=3, Alt=4 and a separate generated mod identity/output.
+- [x] Add failing tests for probe handler counts, isolated metadata/output, installer switch, and result-decoding docs.
+- [x] Run tests and observe the missing probe interfaces.
+- [x] Implement `--probe` / `-Probe` and diagnostic metadata/docs without changing standard mode.
+- [x] Run full tests green.

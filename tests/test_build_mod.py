@@ -142,5 +142,51 @@ class BuildModTests(unittest.TestCase):
             self.assertIn(phrase, runtime)
 
 
+    def test_probe_queue_handlers_use_distinct_1_2_3_4_counts(self):
+        m = self._module()
+        src = 'button = {\n\tonclick = "[Execute( Building.QueueConstruction )]"\n}\n'
+        out, count = m.patch_gui_text(src, probe=True)
+        self.assertEqual(count, 1)
+        self.assertEqual(out.count('ondefault = "[Execute( Building.QueueConstruction )]"'), 1)
+        self.assertEqual(out.count('onshift = "[Execute( Building.QueueConstruction )]"'), 2)
+        self.assertEqual(out.count('onctrl = "[Execute( Building.QueueConstruction )]"'), 3)
+        self.assertEqual(out.count('onalt = "[Execute( Building.QueueConstruction )]"'), 4)
+
+    def test_probe_build_is_isolated_and_marks_metadata_and_report(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            game = td / "game_root"
+            out = td / "probe_out"
+            for rel in m.TARGET_GUI_FILES:
+                p = game / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text('onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            report = m.build_mod(game, out, probe=True)
+            self.assertEqual(report["mode"], "probe")
+            meta = json.loads((out / ".metadata/metadata.json").read_text(encoding="utf-8"))
+            self.assertIn("Modifier Probe", meta["name"])
+            generated = (out / "gui/building_details_panel.gui").read_text(encoding="utf-8")
+            self.assertEqual(generated.count('onshift = "[Execute( Building.QueueConstruction )]"'), 2)
+            self.assertEqual(generated.count('onctrl = "[Execute( Building.QueueConstruction )]"'), 3)
+            self.assertEqual(generated.count('onalt = "[Execute( Building.QueueConstruction )]"'), 4)
+
+    def test_probe_windows_installer_uses_separate_output_and_docs_decode_results(self):
+        installer = (ROOT / "tools/install.ps1").read_text(encoding="utf-8")
+        self.assertIn("[switch]$Probe", installer)
+        self.assertIn("Vic3PriorityBatchProbe", installer)
+        self.assertIn('"--probe"', installer)
+        docs = (ROOT / "docs/modifier-dispatch-probe.md").read_text(encoding="utf-8")
+        for phrase in (
+            "Shift+Alt",
+            "2 new entries",
+            "4 new entries",
+            "Ctrl+Alt",
+            "3 new entries",
+            "7 new entries",
+        ):
+            self.assertIn(phrase, docs)
+
+
 if __name__ == "__main__":
     unittest.main()

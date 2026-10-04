@@ -16,7 +16,7 @@ For Victoria 3 1.14.x, preserve vanilla construction clicks while adding a path 
 ## Architecture
 The pure-mod path changes the building queue Shift/Ctrl increments to 1, then replaces each GUI queue/cancel `onclick` with `click_modifiers`. QueueConstruction uses 1/5/10/1 calls for default/Shift/Ctrl/Alt; CancelConstruction uses the same counts so lowering the global increments does not regress vanilla batch cancellation. The Shift queue handler invokes `Building.QueueConstruction` five times and the Ctrl handler ten times; default and Alt invoke it once. If Jomini routes Shift+Alt to the Shift handler (and Ctrl+Alt to Ctrl), each invocation still sees Alt held and therefore creates a highest-priority single entry, yielding 5/10 prioritized entries.
 
-Because combined-modifier dispatch priority is not publicly documented and cannot be runtime-tested here, a Windows AutoHotkey v2 helper is included as a fallback. It repeats the game's native Alt-priority click 5/10 times and does not alter game data.
+Because combined-modifier dispatch priority is not publicly documented and cannot be runtime-tested here, the builder also supports a diagnostic probe mode. Probe mode maps default/Shift/Ctrl/Alt queue handlers to 1/2/3/4 calls and uses separate metadata/output so the runtime result identifies which Jomini handler received Shift+Alt or Ctrl+Alt. A Windows AutoHotkey v2 helper remains the fallback when combined clicks resolve through Alt.
 
 ## 1.14.5 GUI targets
 - `game/gui/build_urban_buildings_menu.gui`
@@ -27,4 +27,4 @@ Because combined-modifier dispatch priority is not publicly documented and canno
 - `game/gui/building_details_panel.gui`
 
 ## Verification
-Static tests verify transformation counts, vanilla-preserving handlers, metadata, define overrides, fail-closed behavior, and package contents. Runtime verification remains required for combined-modifier dispatch in the game.
+Static tests verify transformation counts, vanilla-preserving handlers, metadata, define overrides, fail-closed behavior, probe isolation/signatures, and package contents. Runtime verification with the probe remains required for combined-modifier dispatch in the game.

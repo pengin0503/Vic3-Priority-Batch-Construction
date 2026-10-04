@@ -40,7 +40,13 @@ You can also run the builder directly:
 
 Jomini exposes `onshift`, `onctrl`, and `onalt`, but no documented `onshiftalt` / `onctrlalt`. The pure mod therefore relies on combined clicks being dispatched to the Shift/Ctrl handler while Alt remains physically held. That dispatch priority cannot be verified without launching Victoria 3.
 
-If Shift+Alt or Ctrl+Alt still creates only one highest-priority entry, use the included `tools/Vic3PriorityBatch.ahk` with **AutoHotkey v2**. The helper is restricted to `victoria3.exe` and repeats the native Alt-priority click 5 or 10 times.
+To determine the dispatcher behavior directly, generate the diagnostic build with:
+
+`powershell -ExecutionPolicy Bypass -File .\tools\install.ps1 -Probe`
+
+Enable only **Priority Batch Construction — Modifier Probe** and follow `docs/modifier-dispatch-probe.md`. The probe maps `ondefault/onshift/onctrl/onalt` to 1/2/3/4 new entries so combined-key routing can be identified from the queue count.
+
+If Shift+Alt or Ctrl+Alt resolves to `onalt`, use the included `tools/Vic3PriorityBatch.ahk` with **AutoHotkey v2**. The helper is restricted to `victoria3.exe` and repeats the native Alt-priority click 5 or 10 times.
 
 Do **not** run the AutoHotkey fallback at the same time as a pure-mod implementation that already works for the combined keys, or one physical click may be multiplied twice.
 
