@@ -1,5 +1,7 @@
 # Priority Batch Construction Design
 
+Historical initial design. The fixed six-file inventory and per-file queue requirement below are superseded in v0.1.1 by [the supplied GUI audit](../../gui-audit-2026-10-04.md). The combined-key runtime assumptions remain unverified.
+
 ## Goal
 For Victoria 3 1.14.x, preserve vanilla construction clicks while adding a path for Shift+Alt+click to create 5 highest-priority building construction entries and Ctrl+Alt+click to create 10 highest-priority entries.
 

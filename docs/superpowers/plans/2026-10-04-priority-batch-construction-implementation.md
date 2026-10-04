@@ -1,5 +1,7 @@
 # Priority Batch Construction Implementation Plan
 
+Historical initial plan. Version 0.1.1 replaces the fixed file inventory with discovered building queue/cancel handlers; see [the GUI audit](../../gui-audit-2026-10-04.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a Victoria 3 1.14.x mod generator that preserves vanilla construction controls and adds 5/10 repeated priority construction paths.

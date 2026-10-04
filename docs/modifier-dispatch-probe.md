@@ -50,4 +50,6 @@ For each of Shift+Alt and Ctrl+Alt, report:
 3. Which UI entry point you clicked (Production Methods/Buildings, building details, state panel, etc.).
 4. Any parse/property errors in `Documents\Paradox Interactive\Victoria 3\logs\error.log` or `gui.log`.
 
-After the test, disable the probe. Do not enable the probe and normal mod at the same time because both replace the same six GUI files.
+Repeat the signatures at the shared expansion button in building details and the state panel. Also check the foreign-investment button when available. The builder patches their shared definition rather than adding handlers to each template use.
+
+After the test, disable the probe. Do not enable the probe and normal mod at the same time because both replace the same discovered GUI files. The five-file archive does not establish the game version or dispatcher behavior; [the GUI audit](gui-audit-2026-10-04.md) records exactly what static verification covers.

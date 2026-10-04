@@ -12,9 +12,11 @@ Adds an experimental pure-mod path for batch **highest-priority** construction:
 
 ## Why this package builds from your local game files
 
-Victoria 3's construction buttons live in vanilla `.gui` files. Instead of bundling complete copies of Paradox's GUI files, this package patches the six relevant files from your own installed **1.14.x** game and writes the patched copies into a local mod folder.
+Victoria 3's construction buttons live in vanilla `.gui` files. Instead of bundling complete copies of Paradox's GUI files, this package scans `game/gui/**/*.gui` from your own installed **1.14.x** game and writes patched copies of files containing `Building.QueueConstruction` or `Building.CancelConstruction` handlers into a local mod folder. Shared button definitions are patched at their definition; panels that use those definitions do not need duplicate overrides.
 
-The 1.14.5-openbeta vanilla extract was used as the reference. The builder fails rather than creating a partial mod if a required file or `Building.QueueConstruction` action is missing. The builder also prints an explicit warning that the installed game version is not auto-detected, so do not use it outside 1.14.x merely because the GUI structure happens to match.
+The initial reference was a 1.14.5-openbeta extract. Version 0.1.1 also incorporates the supplied five-file `vic3_gui.zip`, whose exact game version is unknown. That archive has queue handlers in a shared button definition and a separate cancellation-only panel. See [the GUI audit](docs/gui-audit-2026-10-04.md) for the comparison and verification evidence.
+
+The builder requires `game/gui/building_details_panel.gui` with a building queue handler. It processes cancellation-only files, discovers additional call sites, and rejects unsupported target handlers or conflicting click/modifier properties in the same widget before replacing an existing mod. A successful build verifies the supported GUI transformation, not the game version, input dispatch, or completeness of a partial GUI extract. Always build an installed mod from the full game installation. Do not use outside 1.14.x merely because GUI structure matches.
 
 ## Install on Windows
 
@@ -48,17 +50,21 @@ Enable only **Priority Batch Construction — Modifier Probe** and follow `docs/
 
 If Shift+Alt or Ctrl+Alt resolves to `onalt`, use the included `tools/Vic3PriorityBatch.ahk` with **AutoHotkey v2**. The helper is restricted to `victoria3.exe` and repeats the native Alt-priority click 5 or 10 times.
 
+The helper retains the held modifiers. Before relying on it, verify that one native combined click creates exactly one entry with the pure mod and probe disabled, then verify that the helper creates exactly 5/10 entries at the front. Do not assume the engine's internal batching behavior from GUI dispatch alone.
+
 Do **not** run the AutoHotkey fallback at the same time as a pure-mod implementation that already works for the combined keys, or one physical click may be multiplied twice.
 
 ## Compatibility
 
-The generated mod overrides these six 1.14.5 GUI files:
+The override list is discovered at build time and printed by the builder. In the supplied archive, only these two files need overrides:
 
-- `gui/build_urban_buildings_menu.gui`
-- `gui/states_panel.gui`
 - `gui/states_panel_buildings.gui`
-- `gui/right_click_menu.gui`
-- `gui/production_methods.gui`
 - `gui/building_details_panel.gui`
 
-UI mods that replace the same files can conflict by load order. Regenerate the mod after Victoria 3 updates within 1.14.x so the patched copies are based on your current local files.
+The original six-file layout is still supported when those handlers are present. Files without target handlers, including the supplied construction queue, ship construction panel and building browser, are not copied. `ConstructionQueueElement` reordering/cancellation and `Building.QueueMilitaryConstruction` are not rewritten. Their runtime behavior under the shared define overrides must be checked in-game.
+
+UI mods that replace any discovered file can conflict by load order. Regenerate after Victoria 3 updates within 1.14.x. The output directory must not overlap the game installation or builder package; the builder replaces that directory after staging and validation. Existing unrelated `.previous` directories are preserved, and a failed publish restores the existing mod.
+
+## Developer verification
+
+Run `python -m unittest discover -s tests -v` and `python -m py_compile tools/build_mod.py tests/test_build_mod.py`. Tests cover discovery, cancellation-only files, unsupported-handler rejection, unrelated controls, output safety, rollback and normal/probe batching. In-game verification remains separate.

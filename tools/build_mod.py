@@ -11,28 +11,50 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC_MOD_DIR = ROOT / "mod"
 
 COMPATIBILITY_WARNING = (
-    "Compatibility warning: this builder is validated only for Victoria 3 1.14.x; "
-    "the installed game version is not auto-detected."
+    "Compatibility warning: this builder targets only Victoria 3 1.14.x; "
+    "the installed game version is not auto-detected and combined-key behavior requires an in-game probe."
 )
 
-TARGET_GUI_FILES = (
-    "game/gui/build_urban_buildings_menu.gui",
-    "game/gui/states_panel.gui",
-    "game/gui/states_panel_buildings.gui",
-    "game/gui/right_click_menu.gui",
-    "game/gui/production_methods.gui",
-    "game/gui/building_details_panel.gui",
-)
+REQUIRED_QUEUE_TEMPLATE = "game/gui/building_details_panel.gui"
 
 STANDARD_COUNTS = {"default": 1, "shift": 5, "ctrl": 10, "alt": 1}
 PROBE_QUEUE_COUNTS = {"default": 1, "shift": 2, "ctrl": 3, "alt": 4}
 
-_QUEUE_CLICK = re.compile(
-    r'(?m)^(?P<indent>[ \t]*)onclick\s*=\s*"\[Execute\(\s*Building\.QueueConstruction\s*\)\]"[ \t]*$'
+_GUI_TOKEN = re.compile(r'#[^\r\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|[^\s]')
+_TARGET_ACTION = re.compile(r'\bBuilding\.(QueueConstruction|CancelConstruction)\b')
+_PLAIN_ACTION = re.compile(
+    r'"\[Execute\([ \t]*Building\.(QueueConstruction|CancelConstruction)[ \t]*\)\]"'
 )
-_CANCEL_CLICK = re.compile(
-    r'(?m)^(?P<indent>[ \t]*)onclick\s*=\s*"\[Execute\(\s*Building\.CancelConstruction\s*\)\]"[ \t]*$'
-)
+
+
+def _gui_assignments(text: str) -> list[tuple[int, int, str, str, int]]:
+    """Read property assignments and their brace scopes without interpreting strings."""
+    tokens = [token for token in _GUI_TOKEN.finditer(text) if not token.group().startswith("#")]
+    scopes = [0]
+    assignments = []
+    for index, token in enumerate(tokens):
+        if token.group() == "{":
+            scopes.append(token.start() + 1)
+        elif token.group() == "}":
+            if len(scopes) > 1:
+                scopes.pop()
+        elif (index + 2 < len(tokens) and
+              re.fullmatch(r"[A-Za-z_]\w*", token.group()) and tokens[index + 1].group() == "="):
+            value = tokens[index + 2]
+            assignments.append((token.start(), value.end(), token.group(), value.group(), scopes[-1]))
+    return assignments
+
+
+def _target_handlers(text: str) -> list[tuple[int, int, str, str]]:
+    """Find executable handler assignments, skipping comments and quoted GUI text."""
+    handlers = []
+    for start, end, key, value, _ in _gui_assignments(text):
+        if not key.startswith("on") or not value.startswith('"'):
+            continue
+        action = _TARGET_ACTION.search(value)
+        if action:
+            handlers.append((start, end, key, action.group(1)))
+    return handlers
 
 
 def _handler_block(indent: str, action: str, counts: dict[str, int]) -> str:
@@ -54,17 +76,41 @@ def _handler_block(indent: str, action: str, counts: dict[str, int]) -> str:
 
 
 def patch_gui_text(text: str, probe: bool = False) -> tuple[str, int]:
-    """Patch queue clicks and any co-located cancel clicks with modifier blocks."""
+    """Patch all building queue/cancel clicks, rejecting unsupported handlers."""
     queue_counts = PROBE_QUEUE_COUNTS if probe else STANDARD_COUNTS
-    patched, queue_count = _QUEUE_CLICK.subn(
-        lambda m: _handler_block(m.group("indent"), "QueueConstruction", queue_counts), text
-    )
-    if queue_count == 0:
-        raise ValueError("No vanilla Building.QueueConstruction onclick found")
-    patched, cancel_count = _CANCEL_CLICK.subn(
-        lambda m: _handler_block(m.group("indent"), "CancelConstruction", STANDARD_COUNTS), patched
-    )
-    return patched, queue_count + cancel_count
+    handlers = _target_handlers(text)
+    if not handlers:
+        raise ValueError("No vanilla Building.QueueConstruction or Building.CancelConstruction onclick found")
+    replacements = []
+    for start, end, key, action in handlers:
+        line_start = text.rfind("\n", 0, start) + 1
+        line_end = text.find("\n", end)
+        if line_end == -1:
+            line_end = len(text)
+        indent = text[line_start:start]
+        trailing = text[end:line_end]
+        value = text[start:end].split("=", 1)[1].strip()
+        if (key != "onclick" or indent.strip() or
+                not _PLAIN_ACTION.fullmatch(value) or
+                (trailing.strip() and not trailing.lstrip().startswith("#"))):
+            line = text.count("\n", 0, start) + 1
+            raise ValueError(f"Unsupported Building.{action} handler at line {line}; expected standalone onclick")
+        counts = queue_counts if action == "QueueConstruction" else STANDARD_COUNTS
+        # Keep the original trailing comment next to the generated block.
+        replacement = _handler_block(indent, action, counts) + trailing
+        replacements.append((line_start, line_end, replacement))
+    assignments = _gui_assignments(text)
+    scope_by_start = {start: scope for start, _, _, _, scope in assignments}
+    click_properties = {"onclick", "click_modifiers", "ondefault", "onshift", "onctrl", "onalt"}
+    for start, _, _, _ in handlers:
+        scope = scope_by_start[start]
+        if any(other_start != start and other_scope == scope and key in click_properties
+               for other_start, _, key, _, other_scope in assignments):
+            line = text.count("\n", 0, start) + 1
+            raise ValueError(f"Conflicting click handlers in construction widget at line {line}")
+    for start, end, replacement in reversed(replacements):
+        text = text[:start] + replacement + text[end:]
+    return text, len(replacements)
 
 
 def _validate_static_payload() -> None:
@@ -84,10 +130,27 @@ def _validate_static_payload() -> None:
         raise ValueError("Metadata is not targeted at Victoria 3 1.14")
 
 
-def _validate_sources(game_dir: Path) -> None:
-    missing = [rel for rel in TARGET_GUI_FILES if not (game_dir / rel).is_file()]
-    if missing:
-        raise FileNotFoundError("Missing Victoria 3 GUI files: " + ", ".join(missing))
+def _discover_sources(game_dir: Path) -> dict[str, str]:
+    required = game_dir / REQUIRED_QUEUE_TEMPLATE
+    if not required.is_file():
+        raise FileNotFoundError(f"Missing Victoria 3 GUI file: {REQUIRED_QUEUE_TEMPLATE}")
+    sources = {}
+    for source in sorted((game_dir / "game/gui").rglob("*.gui")):
+        text = source.read_text(encoding="utf-8-sig")
+        if _target_handlers(text):
+            sources[source.relative_to(game_dir).as_posix()] = text
+    if REQUIRED_QUEUE_TEMPLATE not in sources or not any(
+        action == "QueueConstruction"
+        for _, _, _, action in _target_handlers(sources[REQUIRED_QUEUE_TEMPLATE])
+    ):
+        raise ValueError(f"No Building.QueueConstruction handler in {REQUIRED_QUEUE_TEMPLATE}")
+    return sources
+
+
+def _validate_output(game_dir: Path, output_dir: Path) -> None:
+    for source in (game_dir, ROOT.resolve()):
+        if output_dir == source or output_dir in source.parents or source in output_dir.parents:
+            raise ValueError(f"Output must not overlap game or builder sources: {source}")
 
 
 def _configure_probe_metadata(stage: Path) -> None:
@@ -104,18 +167,16 @@ def _configure_probe_metadata(stage: Path) -> None:
     )
 
 
-def _validate_generated(stage: Path, report: dict) -> None:
-    if set(report["patched_files"]) != set(TARGET_GUI_FILES):
-        raise ValueError("Not all known 1.14.5 QueueConstruction GUI files were patched")
-    for rel in TARGET_GUI_FILES:
+def _validate_generated(stage: Path, report: dict, sources: dict[str, str]) -> None:
+    if set(report["patched_files"]) != set(sources):
+        raise ValueError("Not all discovered construction GUI files were patched")
+    for rel in sources:
         out = stage / rel.replace("game/", "", 1)
         text = out.read_text(encoding="utf-8-sig")
         if "# PRIORITY_BATCH_BEGIN" not in text:
             raise ValueError(f"Generated file was not patched: {rel}")
-        if _QUEUE_CLICK.search(text):
-            raise ValueError(f"Vanilla QueueConstruction onclick remains in generated file: {rel}")
-        if _CANCEL_CLICK.search(text):
-            raise ValueError(f"Vanilla CancelConstruction onclick remains in generated file: {rel}")
+        if any(key == "onclick" for _, _, key, _ in _target_handlers(text)):
+            raise ValueError(f"Vanilla construction onclick remains in generated file: {rel}")
     metadata = json.loads((stage / ".metadata/metadata.json").read_text(encoding="utf-8"))
     if report["mode"] == "probe" and "Modifier Probe" not in metadata.get("name", ""):
         raise ValueError("Probe build metadata was not marked as a diagnostic build")
@@ -126,8 +187,15 @@ def build_mod(game_dir: Path | str, output_dir: Path | str, probe: bool = False)
     """Build a mod from local vanilla files, replacing destination only after validation."""
     game_dir = Path(game_dir).resolve()
     output_dir = Path(output_dir).resolve()
+    _validate_output(game_dir, output_dir)
     _validate_static_payload()
-    _validate_sources(game_dir)
+    sources = _discover_sources(game_dir)
+    patched_sources = {}
+    for rel, original in sources.items():
+        try:
+            patched_sources[rel] = patch_gui_text(original, probe=probe)
+        except ValueError as error:
+            raise ValueError(f"{rel}: {error}") from error
 
     output_parent = output_dir.parent
     output_parent.mkdir(parents=True, exist_ok=True)
@@ -141,26 +209,20 @@ def build_mod(game_dir: Path | str, output_dir: Path | str, probe: bool = False)
         shutil.copytree(STATIC_MOD_DIR, stage, dirs_exist_ok=True)
         if probe:
             _configure_probe_metadata(stage)
-        for rel in TARGET_GUI_FILES:
-            src = game_dir / rel
-            original = src.read_text(encoding="utf-8-sig")
-            patched, count = patch_gui_text(original, probe=probe)
+        for rel, (patched, count) in patched_sources.items():
             target = stage / rel.replace("game/", "", 1)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(patched, encoding="utf-8-sig", newline="")
             report["patched_files"].append(rel)
             report["replacement_counts"][rel] = count
 
-        _validate_generated(stage, report)
+        _validate_generated(stage, report, sources)
 
         backup = None
         if output_dir.exists():
-            backup = output_parent / (output_dir.name + ".previous")
-            if backup.exists():
-                if backup.is_dir():
-                    shutil.rmtree(backup)
-                else:
-                    backup.unlink()
+            # Never delete a pre-existing sibling directory owned by the user.
+            backup = Path(tempfile.mkdtemp(prefix=output_dir.name + ".backup-", dir=output_parent))
+            backup.rmdir()
             output_dir.rename(backup)
         try:
             stage.rename(output_dir)

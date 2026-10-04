@@ -1,7 +1,7 @@
 {
   "name": "Priority Batch Construction",
   "id": "",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "game_id": "victoria3",
   "supported_game_version": "1.14.*",
   "short_description": "Adds batch construction controls while preserving Victoria 3's normal, Shift, Ctrl and Alt construction clicks.",

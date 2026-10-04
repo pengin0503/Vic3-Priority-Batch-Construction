@@ -3,9 +3,18 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LEGACY_GUI_FILES = (
+    "game/gui/build_urban_buildings_menu.gui",
+    "game/gui/states_panel.gui",
+    "game/gui/states_panel_buildings.gui",
+    "game/gui/right_click_menu.gui",
+    "game/gui/production_methods.gui",
+    "game/gui/building_details_panel.gui",
+)
 
 
 class BuildModTests(unittest.TestCase):
@@ -19,19 +28,32 @@ class BuildModTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
-    def test_target_gui_files_match_vanilla_1145_inventory(self):
+    def test_build_discovers_shared_queue_and_cancel_only_files(self):
         m = self._module()
-        self.assertEqual(
-            m.TARGET_GUI_FILES,
-            (
-                "game/gui/build_urban_buildings_menu.gui",
-                "game/gui/states_panel.gui",
-                "game/gui/states_panel_buildings.gui",
-                "game/gui/right_click_menu.gui",
-                "game/gui/production_methods.gui",
-                "game/gui/building_details_panel.gui",
-            ),
-        )
+        with tempfile.TemporaryDirectory() as td:
+            game, out = Path(td) / "game_root", Path(td) / "out"
+            gui = game / "game/gui"
+            (gui / "nested").mkdir(parents=True)
+            (gui / "building_details_panel.gui").write_text(
+                'type expand_building_button = widget {\n'
+                '  onclick = "[Execute( Building.QueueConstruction )]"\n}\n', encoding="utf-8")
+            (gui / "states_panel_buildings.gui").write_text(
+                'button = {\n  onclick = "[Execute( Building.CancelConstruction )]"\n}\n'
+                'expand_building_button = {}\n', encoding="utf-8")
+            (gui / "nested/new_panel.gui").write_text(
+                'onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            (gui / "construction_queue.gui").write_text(
+                'onclick = "[Execute( ConstructionQueueElement.CancelConstruction )]"\n', encoding="utf-8")
+            report = m.build_mod(game, out)
+            self.assertEqual(report["replacement_counts"], {
+                "game/gui/building_details_panel.gui": 1,
+                "game/gui/nested/new_panel.gui": 1,
+                "game/gui/states_panel_buildings.gui": 1,
+            })
+            self.assertFalse((out / "gui/construction_queue.gui").exists())
+            text = (out / "gui/states_panel_buildings.gui").read_text(encoding="utf-8-sig")
+            self.assertEqual(text.count('onshift = "[Execute( Building.CancelConstruction )]"'), 5)
+            self.assertIn('expand_building_button = {}', text)
 
     def test_patch_replaces_every_queue_click_with_1_5_10_1_handlers(self):
         m = self._module()
@@ -63,10 +85,161 @@ class BuildModTests(unittest.TestCase):
         self.assertTrue(out.startswith("before\n"))
         self.assertTrue(out.endswith("after\n"))
 
-    def test_patch_requires_at_least_one_queue_click(self):
+    def test_patch_requires_at_least_one_building_queue_or_cancel_click(self):
         m = self._module()
         with self.assertRaisesRegex(ValueError, "QueueConstruction"):
             m.patch_gui_text("button = { onclick = '[Other.Action]' }\n")
+
+    def test_patch_accepts_cancel_only_file_in_standard_and_probe_modes(self):
+        m = self._module()
+        src = 'onclick = "[Execute( Building.CancelConstruction )]"\n'
+        for probe in (False, True):
+            with self.subTest(probe=probe):
+                out, count = m.patch_gui_text(src, probe=probe)
+                self.assertEqual(count, 1)
+                self.assertEqual(out.count('onshift = "[Execute( Building.CancelConstruction )]"'), 5)
+                self.assertEqual(out.count('onctrl = "[Execute( Building.CancelConstruction )]"'), 10)
+
+    def test_patch_preserves_trailing_comments_and_unrelated_hash_strings(self):
+        m = self._module()
+        src = ('text = "## onshift"\n'
+               '  onclick = "[Execute(Building.QueueConstruction)]" # build here\n'
+               '# onclick = "[Execute( Building.CancelConstruction )]"\n')
+        out, count = m.patch_gui_text(src)
+        self.assertEqual(count, 1)
+        self.assertIn('text = "## onshift"', out)
+        self.assertIn('# build here', out)
+        self.assertIn('# onclick = "[Execute( Building.CancelConstruction )]"', out)
+
+    def test_patch_does_not_modify_actions_inside_multiline_quoted_text(self):
+        m = self._module()
+        src = r'''text = "description
+onclick = \"[Execute( Building.CancelConstruction )]\"
+end"
+onclick = "[Execute( Building.QueueConstruction )]"
+'''
+        out, count = m.patch_gui_text(src)
+        self.assertEqual(count, 1)
+        self.assertIn('onclick = \\"[Execute( Building.CancelConstruction )]\\"', out)
+
+    def test_patch_rejects_unhandled_target_handlers_instead_of_partial_patch(self):
+        m = self._module()
+        valid = 'onclick = "[Execute( Building.QueueConstruction )]"\n'
+        for unsupported in (
+            'button = { onclick = "[Execute( Building.CancelConstruction )]" }\n',
+            'onshift = "[Execute( Building.QueueConstruction )]"\n',
+            'onclick = "[Execute( Building.QueueConstruction )][Other.Action]"\n',
+        ):
+            with self.subTest(unsupported=unsupported):
+                with self.assertRaisesRegex(ValueError, "Unsupported"):
+                    m.patch_gui_text(valid + unsupported)
+
+    def test_patch_rejects_conflicting_handlers_in_same_widget(self):
+        m = self._module()
+        for other in (
+            'click_modifiers = { onalt = "[Other.Action]" }',
+            'onshift = "[Other.Action]"',
+            'onclick = "[Execute( Building.QueueConstruction )]"',
+            'onclick = "[Other.Action]"',
+        ):
+            with self.subTest(other=other):
+                src = 'button = {\n  onclick = "[Execute( Building.QueueConstruction )]"\n' + other + '\n}\n'
+                with self.assertRaisesRegex(ValueError, "Conflicting"):
+                    m.patch_gui_text(src)
+
+    def test_patch_allows_modifier_handlers_in_child_and_sibling_widgets(self):
+        m = self._module()
+        unrelated = ('child = {\n  click_modifiers = { onalt = "[Other.Action]" }\n}\n')
+        src = ('button = {\n  onclick = "[Execute( Building.QueueConstruction )]"\n'
+               + unrelated + '}\n' + unrelated)
+        out, count = m.patch_gui_text(src)
+        self.assertEqual(count, 1)
+        self.assertEqual(out.count(unrelated), 2)
+
+    def test_build_rejects_unsupported_discovered_action_preserving_destination(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game, out = Path(td) / "game_root", Path(td) / "out"
+            gui = game / "game/gui"
+            gui.mkdir(parents=True)
+            (gui / "building_details_panel.gui").write_text(
+                'onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            (gui / "zzz_extra.gui").write_text(
+                'onalt = "[Execute( Building.CancelConstruction )]"\n', encoding="utf-8")
+            out.mkdir()
+            (out / "keep.txt").write_text("keep", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "zzz_extra.gui.*Unsupported"):
+                m.build_mod(game, out)
+            self.assertEqual((out / "keep.txt").read_text(), "keep")
+
+    def test_build_rejects_output_overlapping_game_or_builder_sources(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game = Path(td) / "game_root"
+            builder_root = Path(td) / "builder"
+            import shutil
+            shutil.copytree(ROOT / "mod", builder_root / "mod")
+            m.ROOT = builder_root
+            m.STATIC_MOD_DIR = builder_root / "mod"
+            for rel in LEGACY_GUI_FILES:
+                p = game / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text('onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            for out in (game, game.parent, game / "game/gui/output", builder_root, builder_root / "mod/output"):
+                with self.subTest(out=out):
+                    with self.assertRaisesRegex(ValueError, "overlap"):
+                        m.build_mod(game, out)
+            self.assertTrue((game / "game/gui/building_details_panel.gui").exists())
+
+    def test_rebuild_preserves_unrelated_previous_directory(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game, out = Path(td) / "game_root", Path(td) / "out"
+            for rel in LEGACY_GUI_FILES:
+                p = game / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text('onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            out.mkdir()
+            (out / "old.txt").write_text("old", encoding="utf-8")
+            previous = out.with_name("out.previous")
+            previous.mkdir()
+            (previous / "keep.txt").write_text("keep", encoding="utf-8")
+            m.build_mod(game, out)
+            self.assertTrue((previous / "keep.txt").exists(), "rebuild deleted unrelated backup")
+            self.assertEqual((previous / "keep.txt").read_text(), "keep")
+            self.assertFalse((out / "old.txt").exists())
+
+    def test_failed_publish_restores_existing_mod(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game, out = Path(td) / "game_root", Path(td) / "out"
+            for rel in LEGACY_GUI_FILES:
+                p = game / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text('onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            out.mkdir()
+            (out / "keep.txt").write_text("keep", encoding="utf-8")
+            rename = Path.rename
+            def fail_stage_publish(source, destination):
+                if ".staging-" in source.name:
+                    raise OSError("simulated locked destination")
+                return rename(source, destination)
+            with patch.object(Path, "rename", fail_stage_publish):
+                with self.assertRaisesRegex(OSError, "locked"):
+                    m.build_mod(game, out)
+            self.assertEqual((out / "keep.txt").read_text(), "keep")
+            self.assertFalse(list(Path(td).glob("out.staging-*")))
+
+    def test_patch_preserves_nonbuilding_queue_and_military_actions(self):
+        m = self._module()
+        other = ('onclick = "[Execute( ConstructionQueueElement.CancelConstruction )]"\n'
+                 'onclick = "[Execute( Building.QueueMilitaryConstruction( MilitaryFormation.Self, CombatUnitType.Self ) )]"\n'
+                 'click_modifiers = {\n'
+                 '  onalt = "[Execute( ConstructionQueueElement.MoveToTop )]"\n}\n')
+        src = 'button = {\n  onclick = "[Execute( Building.QueueConstruction )]"\n}\n' + other
+        out, count = m.patch_gui_text(src)
+        self.assertEqual(count, 1)
+        self.assertTrue(out.endswith(other))
 
     def test_static_payload_has_one_step_defines_and_1145_metadata(self):
         define_text = (ROOT / "mod/common/defines/zzz_priority_batch_defines.txt").read_text(encoding="utf-8")
@@ -88,7 +261,7 @@ class BuildModTests(unittest.TestCase):
             out.mkdir()
             sentinel = out / "keep.txt"
             sentinel.write_text("keep", encoding="utf-8")
-            for rel in m.TARGET_GUI_FILES[:-1]:
+            for rel in LEGACY_GUI_FILES[:-1]:
                 p = game / rel
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text('onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
@@ -102,13 +275,13 @@ class BuildModTests(unittest.TestCase):
             td = Path(td)
             game = td / "game_root"
             out = td / "out"
-            for rel in m.TARGET_GUI_FILES:
+            for rel in LEGACY_GUI_FILES:
                 p = game / rel
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text('x\n\tonclick = "[Execute( Building.QueueConstruction )]"\ny\n', encoding="utf-8")
             report = m.build_mod(game, out)
-            self.assertEqual(set(report["patched_files"]), set(m.TARGET_GUI_FILES))
-            for rel in m.TARGET_GUI_FILES:
+            self.assertEqual(set(report["patched_files"]), set(LEGACY_GUI_FILES))
+            for rel in LEGACY_GUI_FILES:
                 generated = out / rel.replace("game/", "", 1)
                 self.assertTrue(generated.exists(), rel)
                 text = generated.read_text(encoding="utf-8")
@@ -158,7 +331,7 @@ class BuildModTests(unittest.TestCase):
             td = Path(td)
             game = td / "game_root"
             out = td / "probe_out"
-            for rel in m.TARGET_GUI_FILES:
+            for rel in LEGACY_GUI_FILES:
                 p = game / rel
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text('onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
