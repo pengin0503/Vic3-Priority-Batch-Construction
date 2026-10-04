@@ -15,8 +15,6 @@ COMPATIBILITY_WARNING = (
     "the installed game version is not auto-detected and combined-key behavior requires an in-game probe."
 )
 
-REQUIRED_QUEUE_TEMPLATE = "game/gui/building_details_panel.gui"
-
 STANDARD_COUNTS = {"default": 1, "shift": 5, "ctrl": 10, "alt": 1}
 PROBE_QUEUE_COUNTS = {"default": 1, "shift": 2, "ctrl": 3, "alt": 4}
 
@@ -131,19 +129,20 @@ def _validate_static_payload() -> None:
 
 
 def _discover_sources(game_dir: Path) -> dict[str, str]:
-    required = game_dir / REQUIRED_QUEUE_TEMPLATE
-    if not required.is_file():
-        raise FileNotFoundError(f"Missing Victoria 3 GUI file: {REQUIRED_QUEUE_TEMPLATE}")
+    gui_dir = game_dir / "game/gui"
+    if not gui_dir.is_dir():
+        raise FileNotFoundError(f"Missing Victoria 3 GUI directory: {gui_dir}")
     sources = {}
-    for source in sorted((game_dir / "game/gui").rglob("*.gui")):
+    for source in sorted(gui_dir.rglob("*.gui")):
         text = source.read_text(encoding="utf-8-sig")
         if _target_handlers(text):
             sources[source.relative_to(game_dir).as_posix()] = text
-    if REQUIRED_QUEUE_TEMPLATE not in sources or not any(
+    if not any(
         action == "QueueConstruction"
-        for _, _, _, action in _target_handlers(sources[REQUIRED_QUEUE_TEMPLATE])
+        for text in sources.values()
+        for _, _, _, action in _target_handlers(text)
     ):
-        raise ValueError(f"No Building.QueueConstruction handler in {REQUIRED_QUEUE_TEMPLATE}")
+        raise ValueError(f"No Building.QueueConstruction handler in {gui_dir}")
     return sources
 
 

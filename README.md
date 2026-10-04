@@ -16,7 +16,7 @@ Victoria 3's construction buttons live in vanilla `.gui` files. Instead of bundl
 
 The initial reference was a 1.14.5-openbeta extract. Version 0.1.1 also incorporates the supplied five-file `vic3_gui.zip`, whose exact game version is unknown. That archive has queue handlers in a shared button definition and a separate cancellation-only panel. See [the GUI audit](docs/gui-audit-2026-10-04.md) for the comparison and verification evidence.
 
-The builder requires `game/gui/building_details_panel.gui` with a building queue handler. It processes cancellation-only files, discovers additional call sites, and rejects unsupported target handlers or conflicting click/modifier properties in the same widget before replacing an existing mod. A successful build verifies the supported GUI transformation, not the game version, input dispatch, or completeness of a partial GUI extract. Always build an installed mod from the full game installation. Do not use outside 1.14.x merely because GUI structure matches.
+The builder requires a `game/gui` tree with at least one building queue handler; no particular GUI filename is mandatory. It processes cancellation-only files, discovers additional call sites, and rejects unsupported target handlers or conflicting click/modifier properties in the same widget before replacing an existing mod. A successful build verifies the supported GUI transformation, not the game version, input dispatch, or completeness of a partial GUI extract. Always build an installed mod from the full game installation. Do not use outside 1.14.x merely because GUI structure matches.
 
 ## Install on Windows
 
@@ -33,6 +33,10 @@ The builder requires `game/gui/building_details_panel.gui` with a building queue
 4. The generated mod is placed in `Documents\Paradox Interactive\Victoria 3\mod\Vic3PriorityBatch` by default.
 5. Enable **Priority Batch Construction** in the Paradox Launcher.
 6. Follow `docs/runtime-verification.md`.
+
+The installer tries runnable Python 3.10+ interpreters in order (`py -3`, `python`, `python3`). A stale `py` registration is skipped. To select a known working interpreter, add `-PythonExe "X:\path\python.exe"`. Auto-detection checks Steam's configured libraries and conventional `<drive>:\SteamLibrary` paths using the GUI directory and launcher settings, without requiring `building_details_panel.gui`.
+
+If using a supplied **mod-only ZIP**, extract its `Vic3PriorityBatch` folder directly into `Documents\Paradox Interactive\Victoria 3\mod`, then enable it in the launcher. No Python or installer execution is needed. Such a ZIP contains generated overrides for the particular game build used to create it; regenerate after a game update. The separate probe ZIP contains `Vic3PriorityBatchProbe`; enable only one build at a time.
 
 You can also run the builder directly:
 
@@ -62,6 +66,8 @@ The override list is discovered at build time and printed by the builder. In the
 - `gui/building_details_panel.gui`
 
 The original six-file layout is still supported when those handlers are present. Files without target handlers, including the supplied construction queue, ship construction panel and building browser, are not copied. `ConstructionQueueElement` reordering/cancellation and `Building.QueueMilitaryConstruction` are not rewritten. Their runtime behavior under the shared define overrides must be checked in-game.
+
+Version 0.1.2 was additionally generated against the user's full installed Victoria 3 1.14.5 (Steam `1.14-openbeta`, build 25629520). That installation has no `building_details_panel.gui`; it has 15 target sites across seven files. See [the installer fix and installed-game audit](docs/installer-fix-2026-10-04.md) for the exact override list.
 
 UI mods that replace any discovered file can conflict by load order. Regenerate after Victoria 3 updates within 1.14.x. The output directory must not overlap the game installation or builder package; the builder replaces that directory after staging and validation. Existing unrelated `.previous` directories are preserved, and a failed publish restores the existing mod.
 

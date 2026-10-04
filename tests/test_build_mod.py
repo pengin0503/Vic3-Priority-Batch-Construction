@@ -3,6 +3,10 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import os
+import shutil
+import subprocess
+import sys
 from unittest.mock import patch
 from pathlib import Path
 
@@ -252,7 +256,7 @@ onclick = "[Execute( Building.QueueConstruction )]"
         self.assertEqual(meta["name"], "Priority Batch Construction")
         self.assertEqual(meta["game_id"], "victoria3")
 
-    def test_build_fails_before_replacing_destination_when_target_missing(self):
+    def test_build_fails_before_replacing_destination_when_gui_directory_missing(self):
         m = self._module()
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
@@ -261,13 +265,86 @@ onclick = "[Execute( Building.QueueConstruction )]"
             out.mkdir()
             sentinel = out / "keep.txt"
             sentinel.write_text("keep", encoding="utf-8")
-            for rel in LEGACY_GUI_FILES[:-1]:
-                p = game / rel
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text('onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
             with self.assertRaises(FileNotFoundError):
                 m.build_mod(game, out)
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+
+    def test_build_accepts_installed_1145_layout_without_details_panel(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game, out = Path(td) / "game_root", Path(td) / "out"
+            gui = game / "game/gui"
+            gui.mkdir(parents=True)
+            (gui / "build_urban_buildings_menu.gui").write_text(
+                'onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            (gui / "goods_state_panel.gui").write_text(
+                'onclick = "[Execute( Building.CancelConstruction )]"\n', encoding="utf-8")
+            report = m.build_mod(game, out)
+            self.assertEqual(report["replacement_counts"], {
+                "game/gui/build_urban_buildings_menu.gui": 1,
+                "game/gui/goods_state_panel.gui": 1,
+            })
+
+    def test_build_rejects_gui_tree_with_no_queue_handler(self):
+        m = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            game, out = Path(td) / "game_root", Path(td) / "out"
+            gui = game / "game/gui"
+            gui.mkdir(parents=True)
+            (gui / "states_panel_buildings.gui").write_text(
+                'onclick = "[Execute( Building.CancelConstruction )]"\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "No Building.QueueConstruction"):
+                m.build_mod(game, out)
+            self.assertFalse(out.exists())
+
+    @unittest.skipUnless(os.name == "nt" and shutil.which("powershell.exe"), "Windows PowerShell integration")
+    def test_installer_falls_back_when_python_launcher_is_broken(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            gui = base / "game_root/game/gui"
+            gui.mkdir(parents=True)
+            # This also proves the builder no longer needs building_details_panel.gui.
+            (gui / "states_panel.gui").write_text(
+                'onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            shim = base / "bin"
+            shim.mkdir()
+            (shim / "py.cmd").write_text('@echo off\nexit /b 101\n', encoding="ascii")
+            (shim / "python.cmd").write_text(f'@echo off\n"{sys.executable}" %*\n', encoding="utf-8")
+            env = dict(os.environ, PATH=str(shim) + os.pathsep + os.environ.get("PATH", ""))
+            out = base / "out"
+            result = subprocess.run([
+                "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                str(ROOT / "tools/install.ps1"), "-GameDir", str(base / "game_root"), "-OutputDir", str(out),
+            ], env=env, capture_output=True, timeout=60)
+            self.assertEqual(result.returncode, 0, (result.stdout + result.stderr).decode(errors="replace"))
+            self.assertTrue((out / "gui/states_panel.gui").exists())
+
+    @unittest.skipUnless(os.name == "nt" and shutil.which("powershell.exe"), "Windows PowerShell integration")
+    def test_installer_detects_steam_library_without_details_panel(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            game = base / "drive/SteamLibrary/steamapps/common/Victoria 3"
+            (game / "game/gui").mkdir(parents=True)
+            (game / "launcher").mkdir()
+            (game / "launcher/launcher-settings.json").write_text('{"gameId":"victoria3"}', encoding="utf-8")
+            (game / "game/gui/states_panel.gui").write_text(
+                'onclick = "[Execute( Building.QueueConstruction )]"\n', encoding="utf-8")
+            shim = base / "bin"
+            shim.mkdir()
+            (shim / "py.cmd").write_text(f'@echo off\n"{sys.executable}" %2 %3 %4 %5 %6 %7 %8 %9\n', encoding="utf-8")
+            env = dict(os.environ, PATH=str(shim) + os.pathsep + os.environ.get("PATH", ""))
+            def quote(path):
+                return "'" + str(path).replace("'", "''") + "'"
+            command = (
+                'function global:Get-ItemProperty { param($Path,$ErrorAction) throw "no registry" }; '
+                'function global:Get-PSDrive { param($PSProvider) [pscustomobject]@{Root='
+                + quote(base / 'drive') + '} }; & ' + quote(ROOT / 'tools/install.ps1')
+                + ' -OutputDir ' + quote(base / 'out')
+            )
+            result = subprocess.run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                                     '-Command', command], env=env, capture_output=True, timeout=60)
+            self.assertEqual(result.returncode, 0, (result.stdout + result.stderr).decode(errors="replace"))
+            self.assertTrue((base / "out/gui/states_panel.gui").exists())
 
     def test_build_generates_all_patched_gui_files_and_static_payload(self):
         m = self._module()

@@ -2,6 +2,7 @@
 param(
     [string]$GameDir = "",
     [string]$OutputDir = "",
+    [string]$PythonExe = "",
     [switch]$Probe
 )
 
@@ -31,9 +32,13 @@ function Find-Victoria3GameDir {
 
     $candidates.Add("C:\Program Files (x86)\Steam\steamapps\common\Victoria 3")
     $candidates.Add("C:\Program Files\Steam\steamapps\common\Victoria 3")
+    foreach ($disk in Get-PSDrive -PSProvider FileSystem) {
+        $candidates.Add((Join-Path $disk.Root "SteamLibrary\steamapps\common\Victoria 3"))
+    }
 
     foreach ($candidate in $candidates | Select-Object -Unique) {
-        if (Test-Path (Join-Path $candidate "game\gui\building_details_panel.gui")) {
+        if ((Test-Path (Join-Path $candidate "game\gui") -PathType Container) -and
+            (Test-Path (Join-Path $candidate "launcher\launcher-settings.json") -PathType Leaf)) {
             return $candidate
         }
     }
@@ -55,13 +60,30 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 
 $python = $null
 $pythonPrefix = @()
-if (Get-Command py -ErrorAction SilentlyContinue) {
-    $python = "py"
-    $pythonPrefix = @("-3")
-} elseif (Get-Command python -ErrorAction SilentlyContinue) {
-    $python = "python"
+$pythonCandidates = @()
+if (-not [string]::IsNullOrWhiteSpace($PythonExe)) {
+    $pythonCandidates += @{ Command = $PythonExe; Prefix = @() }
 } else {
-    throw "Python 3 was not found. Install Python 3 or run tools\build_mod.py with another Python 3 interpreter."
+    $pythonCandidates += @{ Command = "py"; Prefix = @("-3") }
+    $pythonCandidates += @{ Command = "python"; Prefix = @() }
+    $pythonCandidates += @{ Command = "python3"; Prefix = @() }
+}
+foreach ($candidate in $pythonCandidates) {
+    if (-not (Get-Command $candidate.Command -ErrorAction SilentlyContinue)) { continue }
+    try {
+        $prefix = $candidate.Prefix
+        & $candidate.Command @prefix -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" *> $null
+        if ($LASTEXITCODE -eq 0) {
+            $python = $candidate.Command
+            $pythonPrefix = $prefix
+            break
+        }
+    } catch {
+        # A stale py registration or Store alias is not a usable interpreter.
+    }
+}
+if (-not $python) {
+    throw "No working Python 3.10+ interpreter was found. Use -PythonExe 'X:\path\python.exe', or install the ready-made mod-only ZIP without Python."
 }
 
 $argsList = @()
