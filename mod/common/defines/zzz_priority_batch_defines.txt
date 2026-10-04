@@ -1,0 +1,7 @@
+# Priority Batch Construction
+# The GUI repeats QueueConstruction explicitly, so the engine-level Shift/Ctrl
+# batch increments must be one to avoid 5x5 / 10x10 multiplication.
+NCountry = {
+	CONSTRUCTION_QUEUE_INCREMENT_SHIFT = 1
+	CONSTRUCTION_QUEUE_INCREMENT_CONTROL = 1
+}
