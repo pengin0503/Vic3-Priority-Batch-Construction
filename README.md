@@ -6,8 +6,8 @@ Adds an experimental pure-mod path for batch **highest-priority** construction:
 - Shift+click → 5 constructions
 - Ctrl+click → 10 constructions
 - Alt+click → 1 construction at highest priority
-- Shift+Alt+click → intended: 5 constructions at highest priority
-- Ctrl+Alt+click → intended: 10 constructions at highest priority
+- Shift+Alt+click → 5 constructions at highest priority (via the AutoHotkey helper, which only repeats vanilla Alt+click; the pure-mod result depends on unverified dispatch)
+- Ctrl+Alt+click → 10 constructions at highest priority (same as above)
 - Existing cancellation batching is preserved: Shift+cancel = 5, Ctrl+cancel = 10
 
 ## Why this package builds from your local game files
@@ -44,7 +44,7 @@ You can also run the builder directly:
 
 ## Important runtime limitation
 
-Jomini exposes `onshift`, `onctrl`, and `onalt`, but no documented `onshiftalt` / `onctrlalt`. The pure mod therefore relies on combined clicks being dispatched to the Shift/Ctrl handler while Alt remains physically held. That dispatch priority cannot be verified without launching Victoria 3.
+GUI script cannot read the keyboard state directly. The data-type dump shipped in Paradox's script docs (mirrored in `cwtools/cwtools-vic3-config/script-docs`) has no Shift/Ctrl/Alt state function; `click_modifiers` (`ondefault`/`onshift`/`onctrl`/`onalt`) is the only modifier hook, and there is no `onshiftalt` / `onctrlalt`. The pure mod therefore works for Shift+Alt / Ctrl+Alt only if Jomini dispatches those clicks to `onshift` / `onctrl`. If it dispatches them to `onalt` or `ondefault`, no GUI file can distinguish them from Alt+click or a normal click. That dispatch cannot be verified without launching Victoria 3.
 
 To determine the dispatcher behavior directly, generate the diagnostic build with:
 
@@ -52,11 +52,17 @@ To determine the dispatcher behavior directly, generate the diagnostic build wit
 
 Enable only **Priority Batch Construction — Modifier Probe** and follow `docs/modifier-dispatch-probe.md`. The probe maps `ondefault/onshift/onctrl/onalt` to 1/2/3/4 new entries so combined-key routing can be identified from the queue count.
 
-If Shift+Alt or Ctrl+Alt resolves to `onalt`, use the included `tools/Vic3PriorityBatch.ahk` with **AutoHotkey v2**. The helper is restricted to `victoria3.exe` and repeats the native Alt-priority click 5 or 10 times.
+## Shift+Alt / Ctrl+Alt helper (AutoHotkey v2)
 
-The helper retains the held modifiers. Before relying on it, verify that one native combined click creates exactly one entry with the pure mod and probe disabled, then verify that the helper creates exactly 5/10 entries at the front. Do not assume the engine's internal batching behavior from GUI dispatch alone.
+`tools/Vic3PriorityBatch.ahk` does not depend on that dispatch. While `victoria3.exe` is the active window, it consumes a Shift+Alt+click or Ctrl+Alt+click, logically releases Shift/Ctrl (Alt stays held), and sends 5 or 10 plain **Alt+clicks** at the cursor. Each one is vanilla Alt+click behavior: one level at the front of the construction queue. It therefore does not depend on this mod, works the same with UI mods such as GORA UI+, and needs no regeneration after game updates. It has not been run in-game here; check it with `docs/runtime-verification.md`.
 
-Do **not** run the AutoHotkey fallback at the same time as a pure-mod implementation that already works for the combined keys, or one physical click may be multiplied twice.
+1. Install [AutoHotkey v2](https://www.autohotkey.com/).
+2. Double-click `tools/Vic3PriorityBatch.ahk` (an "H" icon appears in the system tray).
+3. In the game, hover a building's construction (+) button and Shift+Alt+click (5) or Ctrl+Alt+click (10).
+
+Normal, Shift, Ctrl and Alt clicks are not touched by the helper. With this mod disabled they keep vanilla behavior (1/5/10/1 at the front). Because the original combined click never reaches the game, it cannot be multiplied by the mod. If fewer entries than expected appear, raise `ClickDelayMs` at the top of the script. Versions before 0.1.4 defined the hotkey as `$LButton::`, which AutoHotkey does not fire while Shift, Ctrl or Alt is held, so that helper never triggered.
+
+On Windows with the Alt+Shift input-language shortcut enabled, pressing Shift+Alt may also switch the keyboard layout; this is independent of the helper.
 
 ## Compatibility
 

@@ -29,6 +29,11 @@ Then queue at least 10 levels on one building and verify cancellation batching: 
 
 ## If combined modifiers still add only one
 
-Use the modifier probe to distinguish Alt dispatch from other causes such as caps or failed repeated actions; a one-entry result by itself is not proof of which handler fired. If the probe confirms Alt dispatch, disable both pure mod and probe before testing the fallback. Verify that one native combined click creates exactly one front entry, then install AutoHotkey v2 and run `tools/Vic3PriorityBatch.ahk`. The helper repeats the native combined click 5/10 times while the cursor remains over the construction button, with the original modifiers held. Verify the final counts/order on a disposable save before relying on it.
+Use the modifier probe to distinguish Alt or default dispatch from other causes such as caps or failed repeated actions; a one-entry result by itself is not proof of which handler fired. Whatever the probe shows, the AutoHotkey v2 helper `tools/Vic3PriorityBatch.ahk` does not depend on combined-key dispatch: it replaces Shift+Alt+click / Ctrl+Alt+click with 5/10 plain Alt+clicks at the cursor. Verify on a disposable save, with the probe disabled:
+
+1. Alt+click alone (helper running) still adds exactly 1 entry at the front.
+2. Shift+Alt+click adds exactly 5 entries at the front; Ctrl+Alt+click adds exactly 10.
+3. Normal, Shift and Ctrl clicks are unchanged (1/5/10).
+4. If fewer entries appear, raise `ClickDelayMs` in the script and retest.
 
 Record which of the six input cases failed and from which UI entry point; that is enough to revise the pure GUI strategy without guessing.

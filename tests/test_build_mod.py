@@ -431,10 +431,30 @@ onclick = "[Execute( Building.QueueConstruction )]"
 
     def test_windows_helper_is_scoped_to_victoria3_and_repeats_5_and_10(self):
         text = (ROOT / "tools/Vic3PriorityBatch.ahk").read_text(encoding="utf-8")
-        self.assertIn('WinActive("ahk_exe victoria3.exe")', text)
-        self.assertIn("Loop 5", text)
-        self.assertIn("Loop 10", text)
-        self.assertIn('GetKeyState("Alt", "P")', text)
+        self.assertIn('#HotIf WinActive("ahk_exe victoria3.exe")', text)
+        self.assertIn('+!LButton::PriorityBatch(5, "Shift")', text)
+        self.assertIn('^!LButton::PriorityBatch(10, "Ctrl")', text)
+
+    def test_windows_helper_hotkeys_fire_with_their_modifiers_held(self):
+        # A hotkey without modifier symbols (e.g. "$LButton::") does not fire
+        # while Shift/Ctrl/Alt are held, so the combined click would never be caught.
+        text = (ROOT / "tools/Vic3PriorityBatch.ahk").read_text(encoding="utf-8")
+        hotkeys = [line.split("::", 1)[0].strip() for line in text.splitlines()
+                   if "::" in line and not line.lstrip().startswith(";")]
+        self.assertEqual(sorted(hotkeys), ["+!LButton", "^!LButton"])
+
+    def test_windows_helper_sends_plain_alt_clicks(self):
+        # Each repeated click must be a vanilla Alt+click: Shift/Ctrl are released
+        # logically (Blind keeps Alt down) and restored only if still physically held.
+        text = (ROOT / "tools/Vic3PriorityBatch.ahk").read_text(encoding="utf-8")
+        self.assertIn('Send "{Blind}{L" extra " up}{R" extra " up}"', text)
+        self.assertIn("Loop count", text)
+        self.assertIn("Click", text)
+        self.assertIn('GetKeyState("L" extra, "P")', text)
+        self.assertIn('GetKeyState("R" extra, "P")', text)
+        release = text.index('{R" extra " up}')
+        self.assertLess(release, text.index("Loop count"))
+        self.assertLess(text.index("Loop count"), text.index('GetKeyState("L" extra, "P")'))
 
 
     def test_builder_exposes_explicit_114_only_runtime_warning(self):

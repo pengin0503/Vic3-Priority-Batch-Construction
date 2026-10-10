@@ -30,6 +30,7 @@ Click once with **Shift+Alt** held and count only the newly-added construction e
 - **2 new entries** → Jomini dispatched the click to `onshift`. This is the result needed by the normal pure-mod strategy.
 - **4 new entries** → Jomini dispatched the click to `onalt`. The normal pure-mod strategy cannot create five entries from that combined click without another mechanism.
 - **6 new entries** → both `onshift` and `onalt` effectively fired; this is unexpected and needs a revised implementation.
+- **1 new entry** → Jomini fell back to `ondefault` (exact-modifier matching). The click is then indistinguishable from a normal click in GUI script.
 - Any other count → record the exact count and queue ordering; treat it as an unknown dispatch path.
 
 Also note whether the new entries appear at the front of the construction queue. That separately tells us whether `Building.QueueConstruction` still observes Alt while an `onshift` handler is executing.
@@ -41,7 +42,10 @@ Click once with **Ctrl+Alt** held:
 - **3 new entries** → Jomini dispatched the click to `onctrl`. This is the result needed by the normal pure-mod strategy.
 - **4 new entries** → Jomini dispatched the click to `onalt`.
 - **7 new entries** → both `onctrl` and `onalt` effectively fired; unexpected.
+- **1 new entry** → Jomini fell back to `ondefault`.
 - Any other count → record the exact count and queue ordering.
+
+If the result is 4 or 1, GUI script cannot tell that combination apart from Alt+click or a normal click, so the pure mod cannot produce 5/10 priority entries for it; use the AutoHotkey helper described in the README, which sends plain Alt+clicks instead.
 
 ## What to report back
 
