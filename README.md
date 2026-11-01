@@ -85,6 +85,11 @@ Run this in the current PowerShell session with script execution allowed. The Py
 
 The supplied 0.1.3 GORA-compatible mod-only ZIP contains ten GUI overrides covering 23 action sites, including GORA's overview and expanded building grid. Disable older standard/probe builds, enable GORA UI+ and **Priority Batch Construction — GORA UI+ Compatibility**, and load this patch after GORA. Normal Shift/Ctrl handlers contain 5/10 actions; the separate GORA probe deliberately uses 2/3, and is for diagnostics only. See [the compatibility investigation](docs/gora-compatibility-2026-10-04.md). Runtime behavior remains to be verified in Victoria 3.
 
-## Developer verification
 
-Run `python -m unittest discover -s tests -v` and `python -m py_compile tools/build_mod.py tests/test_build_mod.py`. Tests cover discovery, cancellation-only files, unsupported-handler rejection, unrelated controls, output safety, rollback and normal/probe batching. In-game verification remains separate.
+## 日本語
+
+Victoria 3 1.14.x向けの実験的MODです。通常クリックで1件、Shiftで5件、Ctrlで10件を建設予約し、Altで最高優先度にします。Shift+Altは5件、Ctrl+Altは10件の最高優先予約を目指しますが、**キーの組み合わせがゲーム内で正しく振り分けられるかは未確認**です。Shift/Ctrlによる複数キャンセルは維持します。
+
+Windowsではパッケージを展開し、PowerShellで上記の `tools/install.ps1` を実行します。Python 3.10以上とVictoria 3の完全なゲームファイルが必要です。自動検出できない場合は `-GameDir` でゲームフォルダを指定し、生成後にランチャーで有効にします。配布済みのmod-only ZIPを使う場合は `Vic3PriorityBatch` をドキュメント内のVictoria 3のmodフォルダに展開します。生成物は作成元のゲーム版に依存するため、更新後は再生成してください。
+
+GUIを変更する他のMODとは競合する場合があります。組み合わせキーが正しく動かない場合の確認とAutoHotkey v2による代替手段は上記の英語手順を参照してください。正常に動く純MODと代替手段を同時に有効化すると二重処理されるおそれがあります。
